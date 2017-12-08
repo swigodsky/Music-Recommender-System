@@ -1,0 +1,186 @@
+---
+title: "DATA 607 Final Project: Prediction Systems"
+author: "Jagruti Salao and Sarah Wigodsky"
+date: "`r Sys.Date()`"
+output: ioslides_presentation
+---
+###Introduction
+We will be using data from kaggle.com and participating in a current competition to create a better music recommendation system. The goal is to predict the chances of a user listening to a song repetitively after the first observable listening event.  Since people listen to many different types of music, it is hard to predict what song a person will want to listen to repeatedly.  Through kaggle KKBOX, Asia's leading music streaming service, provides a training data set with information about songs and listeners. 
+ 
+```{r,echo = TRUE,suppressMessages = TRUE, warning=FALSE}
+library(ggplot2)
+library(dplyr)
+library(tm)
+library(reshape2)
+library(tidyr)
+library(stringr)
+```
+
+```{r ,echo = TRUE}
+members <- read.csv("https://raw.githubusercontent.com/swigodsky/Music-Recommender-System/master/members.csv", stringsAsFactors = FALSE)
+members <- members[1:4000,]
+colnames(members) <- c("user_id", "city", "age", "gender", "registration_method", "registration_time", "expiration_date")
+members$age <- gsub(0, NA, members$age) #replace age that is recorded as zero with NA
+head(members)
+```
+
+```{r,echo = TRUE}
+y <- read.csv ("https://raw.githubusercontent.com/swigodsky/Music-Recommender-System/master/sample_submissionb.csv")
+y[1:2000,]
+```
+
+
+```{r,echo = TRUE}
+song_extra_info <- read.csv("https://raw.githubusercontent.com/swigodsky/Music-Recommender-System/master/song_extra_infob.csv",header=TRUE, stringsAsFactors=FALSE)
+song_extra_info <- song_extra_info[1:4000,]
+```
+
+```{r,echo = TRUE}
+songs <- read.csv("https://raw.githubusercontent.com/swigodsky/Music-Recommender-System/master/songsd.csv", header=FALSE, stringsAsFactors = FALSE)
+
+#, sep=",", header=FALSE, stringsAsFactors=FALSE, fileEncoding="latin1")
+names(songs) = as.character(unlist(songs[1,]))
+songs <- songs[-1,]
+songs<-songs[1:4000,]
+colnames(songs) <- c("song_id", "song_length", "genre_id", "artist_name", "composer", "lyricist", "language")
+head(songs)
+```
+
+```{r,echo = TRUE}
+testdata <- read.csv("https://raw.githubusercontent.com/swigodsky/Music-Recommender-System/master/test.csv", stringsAsFactors = FALSE)
+testdata <-testdata[1:4000,]
+colnames(testdata) <- c("row_id", "user_id", "song_id", "system_tab", "layout_seen", "entry_source")
+head(testdata)
+```
+
+```{r,echo = TRUE}
+trainingdata <- read.csv("https://raw.githubusercontent.com/swigodsky/Music-Recommender-System/master/trainb.csv", stringsAsFactors = FALSE)
+trainingdata <-trainingdata[1:4000,]
+colnames(trainingdata) <- c("user_id", "song_id", "system_tab", "layout_seen", "entry_source", "target")
+head(trainingdata)
+```
+
+# Merged train sets
+```{r,echo = TRUE}
+merger1 <- merge(trainingdata,songs,"song_id", all=TRUE)  #all=TRUE gives outer join
+merger_train <- merge(members,merger1,"user_id", all=TRUE)
+#merger_train <- na.omit(merger_train)
+summary(merger_train)
+head(merger1)
+head(merger_train)
+
+```
+```{r,echo = TRUE}
+#merger_train$registration_init_time <- as.Date(merger_train$registration_init_time,origin = "1970-01-01")
+#merger_train$expiration_date <- as.Date(merger_train$expiration_date,origin = "1970-01-01")
+head(merger_train)
+```
+
+#Merge Test sets
+```{r,echo = TRUE}
+merger3 <- merge.data.frame(testdata,songs,by = "song_id", all = TRUE)
+merger_test <- merge.data.frame(merger3,members,by = "user_id", all = TRUE)
+str(merger_test)
+merger_test
+```
+
+```{r,echo = TRUE}
+str(merger_train) #doesn't work??
+ggplot(merger_train,aes(x= source_type))+ theme_bw(base_size = 16) +theme(axis.text.x=element_text(angle=90,hjust=1)) + geom_bar()
+```
+
+What we can build our initial prediction is that people listen most of the songs from their local-library. Which has high possibility of recurring songs.
+
+Selecting those users who listened to songs from local-library more than once.(Target = 1 and target = 0)
+
+```{r,echo = TRUE}
+#merger_train1 <- merger_train[which(merger_train$target == 1),]
+#merger_train2 <- merger_train[which(merger_train$target == 0),]
+
+table(merger_train$target)
+prop.table(table(merger_train$target))
+
+```
+
+This shows that 80% of songs are repeated more than once within a month.  This means we can assume that most of songs were repeated. We will start by assuming all songs are repeated.
+
+```{r,echo = TRUE}
+merger_test$target <- rep(1,9)
+head(merger_test)
+```
+
+### gender - target model
+
+```{r,echo = TRUE}
+prop.table(table(merger_train$gender, merger_train$target),1)
+```
+
+80% of women who listened to a song, listened to it a second time.  89% of men who listened to a song, listened to it a second time.
+
+###system tab - target model
+```{r,echo = TRUE}
+prop.table(table(merger_train$system_tab, merger_train$target),1)
+```
+The system tab is the name of the tab where the event was triggered. System tabs are used to categorize KKBOX mobile apps functions. The target is zero for 77% of people whose system tab is radio and 72% of the people whose system tab is listen with.  System tab will be helpful for making predictions.
+
+```{r testwithsystemtab, eval=TRUE}
+merger_test$target[merger_test$system_tab=='radio'|merger_test$system_tab=='listen with'] <- 0
+merger_test
+```
+###Age - Target Model
+```{r age, eval=TRUE}
+merger_train$younger <- 0
+merger_train$younger[merger_train$age < 30] <-1
+prop.table(table(merger_train$younger, merger_train$target),1)
+```
+Different age cutoffs were tested, and at every age, the percentage of people who repeatedly listened to a song was approximately the same.  About 80% of people below and above 30 years old listened to a song again.
+
+###Gender and System Tab - Target Model
+```{r gendersystemtab, eval=TRUE}
+aggregate(target ~ system_tab + gender, data=merger_train, FUN=function(x) {sum(x)/length(x)})
+
+```
+
+There are a number of helpful predictions we can make based on this data.  25% of females with a system tab of radio had a target of 1.  33% of females with a system tab of 'listen with' had a target of 1 but 100% of people whose gender was not listed had a target of 1 with that system tab.  No males who used the system tab of search had a target of 1.
+
+```{r testgenderandsystemtab, eval=TRUE}
+merger_test$target[merger_test$gender=='female'&merger_test$system_tab=='listen with'] <- 0
+merger_test$target[merger_test$gender=='male'&merger_test$system_tab=='search'] <- 0
+merger_test
+```
+
+####Writing the Prediction to a File
+```{r finaldataset, eval=TRUE}
+submit <- data.frame(user_id = merger_test$user_id, target = merger_test$target)
+write.csv(submit, file = "music.csv", row.names = FALSE)
+```
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## R Markdown
+
+This is an R Markdown presentation. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document.
+
+## Slide with Bullets
+
+- Bullet 1
+- Bullet 2
+- Bullet 3
+
+## Slide with R Output
+
+```{r cars, echo = TRUE}
+summary(cars)
+```
+
+## Slide with Plot
+
+```{r pressure}
+plot(pressure)
+```
+
