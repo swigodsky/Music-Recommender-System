@@ -203,5 +203,5 @@ Using the decision tree, the target was predicted 80.30% of the time.
 
 ##Conclusions
 - Entry Source and System Tab were the most useful predictors for determining whether a listener will listen to a song again within a month of first hearing it
-- The Decision Tree is easy To create in R and very useful for creating a predictive ,odel
+- The Decision Tree is easy To create in R and very useful for creating a predictive model
 - Working with a data set through kaggle was a positive experience because there were so many resources on the site itself about recommender systems
