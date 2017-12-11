@@ -9,7 +9,7 @@ output:
 ---
 ##Introduction
 
-In this project, we will be using data from kaggle.com and participating in a current competition to create a better music recommendation system. We will predict the chances of a user listening to a song repetitively after the first observable listening event within one month of first hearing the song. If there are recurring listening event(s) triggered within a month after the user’s very first observable listening event, its target is marked 1, and otherwise it is marked 0 in the training set. \n\
+In this project, we will be using data from kaggle.com and participating in a current competition to create a better music recommendation system. We will predict the chances of a user listening to a song repetitively after the first observable listening event within one month of first hearing the song. If there are recurring listening event(s) triggered within a month after the user's very first observable listening event, its target is marked 1, and otherwise it is marked 0 in the training set. \n\
 \n\
 KKBOX provides a training data set consisting of information of the first observable listening event for each unique user-song pair within a specific time duration. Metadata of each unique user and song pair is also provided. The use of public data to increase the level of accuracy of the prediction is encouraged. \n\
 \n\
@@ -67,6 +67,7 @@ dbDisconnect(members_db)
 members <- members[1:10000,]
 
 members$age <- gsub(0, NA, members$age) #replace age that is recorded as zero with NA
+head(members)
 ```
 
 
@@ -84,6 +85,7 @@ names(songs) = as.character(unlist(songs[1,]))
 songs <- songs[-1,]
 songs<-songs[1:10000,]
 colnames(songs) <- c("song_id", "song_length", "genre_id", "artist_name", "composer", "lyricist", "language")
+head(songs)
 ```
 
 ###Loading Test Data - This Is Used For Submission To Kaggle
@@ -102,6 +104,7 @@ colnames(testwithtargetknown) <- c("user_id", "song_id", "system_tab", "layout_s
 
 trainingdata <-trainingdata[1:6000,]
 colnames(trainingdata) <- c("user_id", "song_id", "system_tab", "layout_seen", "entry_source", "target")
+head(trainingdata)
 ```
 
 ## Step II : Merging Operations for model building
@@ -178,16 +181,16 @@ There are more females than males in the data set, and there are a high percenta
 prop.table(table(merger_train$gender, merger_train$target),1)
 ```
 
-86%% of women who listened to a song, listened to it a second time.  73% of men who listened to a song, listened to it a second time.  
+86% of women who listened to a song, listened to it a second time.  About 73% of men who listened to a song, listened to it a second time.  
 
 ##System Tab - Target Model
 #### Bar Plot to View Differences for Listening Preferences According to System Tab
 
 ```{r,echo = TRUE}
-ggplot(trainingdata,aes(x= system_tab))+ theme_bw(base_size = 16) + theme(axis.text.x=element_text(angle=90,hjust=1)) + geom_bar(colour = "red")
+ggplot(merger_train,aes(x= system_tab))+ theme_bw(base_size = 16) + theme(axis.text.x=element_text(angle=90,hjust=1)) + geom_bar(colour = "red")
 ```
 
-It is clear that people will prefer to listen songs from their own library and have more probability to listen those songs again.
+It is clear that people will prefer to listen songs from their own library and have a greater probability to listen to those songs again.
 
 ```{r,echo = TRUE}
 prop.table(table(merger_train$system_tab, merger_train$target),1)
@@ -207,23 +210,24 @@ merger_train$younger <- 0
 merger_train$younger[merger_train$age < 30] <-1
 prop.table(table(merger_train$younger, merger_train$target),1)
 ```
-Different age cutoffs were tested, and at every age, the percentage of people who repeatedly listened to a song was approximately the same.  74% of people below and 79% of people above 30 years old listened to a song again within one month of first hearing it. \n\
+Different age cutoffs were tested, and at every age, the percentage of people who repeatedly listened to a song was approximately the same.  76% of people below and 79% of people above 30 years old listened to a song again within one month of first hearing it. \n\
 \n\
 
 Taking into account every parameter we decided two develop two models for our final predictions
+
 ##Gender and System Tab - Target Model
 ```{r gendersystemtab, eval=TRUE}
 aggregate(target ~ system_tab + gender, data=merger_train, FUN=function(x) {sum(x)/length(x)})
 ```
 
-There are a number of helpful predictions that can be make based on this data.  31.57% of females and 20% of males with a system tab of radio had a target of 1.  37.50% of females and 0% of males with a system tab of 'listen with' had a target of 1, but 71% of people whose gender was not listed had a target of 1 with that system tab.  90% of females and 17% of males with the search system tab had a target of 1.
+There are a number of helpful predictions that can be make based on this data.  100% of females and 19% of males with a system tab of radio had a target of 1.  No females and 18% of males with a system tab of 'listen with' had a target of 1, but 50% of people whose gender was not listed had a target of 1 with that system tab.  64% of females and 3% of males with the search system tab had a target of 1.
 
 ###Adjusting the Prediction to take into account listen with and female, male and search
 ```{r testgenderandsystemtab, eval=TRUE, echo=TRUE}
-merger_test$target[is.na(merger_test$gender) & merger_test$system_tab=='listen with'] <- 1
+merger_test$target[merger_test$gender=='female' & merger_test$system_tab=='radio'] <- 1
 merger_test$target[merger_test$gender=='male'& merger_test$system_tab=='search'] <- 0
 
-merger_train2$targetguess[is.na(merger_train2$gender) & merger_train2$system_tab=='listen with'] <- 1
+merger_train2$targetguess[merger_train2$gender=='female' & merger_train2$system_tab=='radio'] <- 1
 merger_train2$targetguess[merger_train2$gender=='male'& merger_train2$system_tab=='search'] <- 0
 ```
 
@@ -232,7 +236,7 @@ merger_train2$targetguess[merger_train2$gender=='male'& merger_train2$system_tab
 (sum(merger_train2$target == merger_train2$targetguess))/2000
 ```
 
-The target is correctly predicted 79.90% of the time.
+The target is correctly predicted 80.05% of the time.
 
 
 ##Decision Tree
@@ -241,7 +245,7 @@ fit <- rpart(target ~  gender + system_tab + entry_source, data=merger_train, me
 fancyRpartPlot(fit)
 ```
 
-The decision tree mainly separates by entry source.  
+The decision tree separates by entry source and then by gender.  
 
 ###Using the Decision Tree to Predict the Target Value
 ```{r using-decision-tree-to-predict, eval = TRUE, echo=TRUE}
@@ -250,7 +254,7 @@ merger_train2$predict <- Prediction
 (sum(merger_train2$target == merger_train2$predict))/2000
 ```
 
-Using the decision tree, the target was predicted 80.30% of the time.
+Using the decision tree, the target was predicted 80.40% of the time.
 
 ###Recommender Lab model
 Second model to get the desired sample_submission file for our development of shiny app is made with 'Recommender lab' model 
@@ -320,3 +324,4 @@ In our attempt to build an application through shiny and help users with our res
 - Entry Source and System Tab were the most useful predictors for determining whether a listener will listen to a song again within a month of first hearing it
 - The Decision Tree is easy To create in R and very useful for creating a predictive model
 - Working with a data set through kaggle was a positive experience because there were so many resources on the site itself about recommender systems
+
